@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    
+    <meta charset="UTF-8">
+    <title>AI Fitness Pro (Güvenli Başlangıç)</title>
+    <style>
+        /*Note: This prototype edition was developed and created by Can with Gemini 3.*/
+        body {
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            background-color: #121212;
+            color: #ecf0f1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 10px;
+        }
+
+        /* Üst Panel */
+        .top-bar {
+            width: 640px;
+            background: #2d3436;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        
+        select { padding: 8px; background: #636e72; color: white; border: none; border-radius: 4px; font-weight: bold; }
+        .btn-finish { background: #e17055; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+
+        /* Kamera Alanı */
+        #canvas-container {
+            position: relative; width: 640px; height: 480px;
+            border-radius: 12px; overflow: hidden;
+            background: #000; box-shadow: 0 0 25px rgba(0,0,0,0.6);
+        }
+        video { display: none; }
+        canvas { transform: scaleX(-1); }
+
+        /* UI Katmanları */
+        #overlay { position: absolute; top: 20px; width: 100%; text-align: center; pointer-events: none; text-shadow: 2px 2px 4px #000; }
+        #main-msg { font-size: 32px; font-weight: 800; color: white; }
+        #sub-msg { font-size: 20px; color: #f1c40f; font-weight: bold; }
+
+        #pause-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); display: none;
+            flex-direction: column; justify-content: center; align-items: center;
+            z-index: 10; color: white; backdrop-filter: blur(3px);
+        }
+
+        /* İstatistikler ve Loglar */
+        #stats { display: flex; gap: 10px; margin-top: 10px; width: 640px; }
+        .stat-box { flex: 1; background: #2d3436; padding: 10px; border-radius: 8px; text-align: center; border-bottom: 3px solid #0984e3; }
+        .stat-box span { font-size: 24px; font-weight: bold; display: block; }
+
+        #system-logs-container {
+            margin-top: 15px; width: 640px; background: #000;
+            border: 1px solid #444; border-radius: 5px; padding: 15px;
+            font-family: 'Courier New', monospace; box-sizing: border-box;
+        }
+        .log-good { color: #2ed573; } .log-bad { color: #ff4757; } .log-warn { color: #ffa502; }
+
+        #loader, #summary-modal {
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background: rgba(18,18,18,0.95); z-index: 999;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+        }
+        #summary-modal { display: none; background: rgba(0,0,0,0.95); }
+    </style>
+</head>
+<body>
+
+    <div id="loader">
+        <h1>AI Fitness Asistanı</h1>
+        <p>Kamera izni gereklidir.</p>
+        <button onclick="init()" style="padding:15px 40px; font-size:18px; cursor:pointer; background:#0984e3; color:white; border:none; border-radius:50px; margin-top:20px;">SİSTEMİ AÇ</button>
+    </div>
+
+    <div id="summary-modal">
+        <h2 style="color:white">Antrenman Özeti</h2>
+        <h1 id="final-count" style="font-size:80px; color:#00cec9; margin:10px">0</h1>
+        <p style="color:#aaa">Toplam Tekrar</p>
+        <button onclick="location.reload()" style="padding:10px 20px; margin-top:20px; cursor:pointer;">Yeniden Başla</button>
+    </div>
+
+    <div class="top-bar">
+        <div style="display:flex; gap:15px; align-items:center;">
+            <select id="exercise" onchange="resetState()">
+                <option value="curl">Dumbbell Curl</option>
+                <option value="squat">Squat</option>
+                <option value="pushup">Şınav</option>
+            </select>
+        </div>
+        <div style="display:flex; gap:10px">
+             <button id="pause-btn-top" class="btn-finish" style="background:#636e72" onclick="togglePause()">Durdur</button>
+             <button class="btn-finish" onclick="finishWorkout()">Bitir</button>
+        </div>
+    </div>
+
+    <div id="canvas-container">
+        <div id="pause-overlay">
+            <h1>HAZIR OL</h1>
+            <p>Kamerayı ayarla ve başla</p>
+            <button onclick="togglePause()" style="padding:15px 30px; margin-top:15px; cursor:pointer; background: #2ed573; border:none; border-radius:5px; font-size:18px; color:white; font-weight:bold;">ANTRENMANI BAŞLAT</button>
+        </div>
+
+        <video id="video" playsinline></video>
+        <canvas id="output"></canvas>
+        
+        <div id="overlay">
+            <div id="main-msg">Hazır</div>
+            <div id="sub-msg">Kameraya Yan Dön</div>
+        </div>
+    </div>
+
+    <div id="stats">
+        <div class="stat-box"><h4>TEKRAR</h4><span id="count">0</span></div>
+        <div class="stat-box"><h4>TEMPO</h4><span id="phase">BEKLİYOR</span></div>
+    </div>
+
+    <div id="system-logs-container">
+        <div style="color:#00cec9; border-bottom:1px solid #333; margin-bottom:5px;">SİSTEM LOGLARI</div>
+        <div id="log-content" style="color: #aaa;">Sistem hazır...</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+    <script>
+        let detector, video, canvas, ctx;
+        let count = 0;
+        let isPaused = false;
+        let isFinished = false;
+
+        // Egzersiz Değişkenleri
+        let currentState = "START";
+        let phaseStartTime = 0;      
+        let movementStartTime = 0;   
+        let lastRepTime = 0;         
+
+        // --- GENEL FONKSİYONLAR ---
+        
+        let lastSpeechTime = 0;
+        function speak(text) {
+            if (isFinished) return;
+            // Duraklatılmışsa sadece bilgilendirme mesajlarını oku
+            if (isPaused && !text.includes("aktif") && !text.includes("Hazır")) return; 
+            
+            const now = Date.now();
+            if (now - lastSpeechTime < 1500) return;
+            
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'tr-TR';
+            window.speechSynthesis.speak(u);
+            lastSpeechTime = now;
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            const overlay = document.getElementById('pause-overlay');
+            const btnTop = document.getElementById('pause-btn-top');
+            
+            if (isPaused) {
+                overlay.style.display = 'flex';
+                overlay.querySelector('h1').innerText = "DURAKLATILDI";
+                overlay.querySelector('button').innerText = "DEVAM ET";
+                btnTop.innerText = "Devam Et";
+                speak("Duraklatıldı");
+            } else {
+                overlay.style.display = 'none';
+                btnTop.innerText = "Durdur";
+                speak("Başlıyoruz");
+            }
+        }
+
+        function finishWorkout() {
+            isFinished = true;
+            document.getElementById('summary-modal').style.display = 'flex';
+            document.getElementById('final-count').innerText = count;
+            speak("Antrenman bitti. Tebrikler.");
+        }
+
+        function canCountRep() { return (Date.now() - lastRepTime > 1500); }
+
+        function logSystem(duration, target) {
+            if (duration < 0.5) return; 
+            const logDiv = document.getElementById('log-content');
+            let quality = "MÜKEMMEL", cssClass = "log-good";
+
+            if (duration < 1.0) { quality = "ÇOK HIZLI"; cssClass = "log-bad"; }
+            else if (duration < target - 0.5) { quality = "BİRAZ HIZLI"; cssClass = "log-warn"; }
+
+            logDiv.innerHTML = `
+                <span style="color:white">⏱️ Negatif:</span> <b>${duration.toFixed(1)} sn</b> 
+                <span class="${cssClass}">[${quality}]</span>
+            `;
+        }
+
+        function getAngle(a, b, c) {
+            if(!a || !b || !c) return 180;
+            const rad = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+            let ang = Math.abs(rad * 180.0 / Math.PI);
+            if (ang > 180.0) ang = 360 - ang;
+            return ang;
+        }
+
+        function updateUI(msg, sub, color) {
+            document.getElementById('main-msg').innerText = msg;
+            if(color) document.getElementById('main-msg').style.color = color;
+            document.getElementById('sub-msg').innerText = sub;
+            document.getElementById('phase').innerText = currentState;
+        }
+
+        // --- EGZERSİZ MANTIKLARI ---
+
+        function logicCurl(body) {
+            const angle = getAngle(body.shoulder, body.elbow, body.wrist);
+            if (currentState === "START") {
+                if (angle > 155) updateUI("Kaldır", "Yukarı çek", "white");
+                if (angle < 50) { currentState = "HOLD"; phaseStartTime = Date.now(); speak("Sık"); }
+            }
+            if (currentState === "HOLD") {
+                updateUI("Bekle", "Tepe noktası", "#00cec9");
+                if (angle > 80) currentState = "START"; 
+                if (Date.now() - phaseStartTime > 1000) { currentState = "ECCENTRIC"; movementStartTime = Date.now(); speak("Yavaşça indir"); }
+            }
+            if (currentState === "ECCENTRIC") {
+                const dur = (Date.now() - movementStartTime) / 1000;
+                updateUI("İndir", dur.toFixed(1) + " sn", "#e17055");
+                if (angle > 155) {
+                    if (canCountRep()) {
+                        logSystem(dur, 3.0);
+                        count++; document.getElementById('count').innerText = count; speak(count.toString());
+                        lastRepTime = Date.now();
+                    }
+                    currentState = "START";
+                }
+            }
+        }
+
+        function logicSquat(body) {
+            const angle = getAngle(body.hip, body.knee, body.ankle);
+            if (currentState === "START") {
+                updateUI("Çök", "Kalça geriye", "white");
+                if (angle < 160 && angle > 100 && movementStartTime === 0) movementStartTime = Date.now();
+                if (angle > 170) movementStartTime = 0;
+                if (angle < 95) {
+                    if (movementStartTime !== 0) logSystem((Date.now() - movementStartTime)/1000, 3.0);
+                    currentState = "HOLD"; phaseStartTime = Date.now(); speak("Kal");
+                }
+            }
+            if (currentState === "HOLD") {
+                const elapsed = Date.now() - phaseStartTime;
+                updateUI("Bekle", (1.5 - elapsed/1000).toFixed(1), "#00cec9");
+                if (angle > 110) { currentState = "START"; movementStartTime = 0; }
+                if (elapsed > 1500) { currentState = "CONCENTRIC"; speak("Kalk"); }
+            }
+            if (currentState === "CONCENTRIC") {
+                updateUI("Kalk!", "Yukarı", "#2ed573");
+                if (angle > 165) {
+                    if (canCountRep()) { count++; document.getElementById('count').innerText = count; speak(count.toString()); lastRepTime = Date.now(); }
+                    currentState = "START"; movementStartTime = 0;
+                }
+            }
+        }
+
+        function logicPushup(body) {
+            const angle = getAngle(body.shoulder, body.elbow, body.wrist);
+            if (currentState === "START") {
+                updateUI("İn", "Göğüs yere", "white");
+                if (angle < 160 && angle > 100 && movementStartTime === 0) movementStartTime = Date.now();
+                if (angle > 165) movementStartTime = 0;
+                if (angle < 90) {
+                     if (movementStartTime !== 0) logSystem((Date.now() - movementStartTime)/1000, 2.5);
+                    currentState = "HOLD"; phaseStartTime = Date.now(); speak("Bekle");
+                }
+            }
+            if (currentState === "HOLD") {
+                updateUI("Dayan", "...", "#00cec9");
+                if (angle > 110) { currentState = "START"; movementStartTime = 0; }
+                if (Date.now() - phaseStartTime > 1000) { currentState = "CONCENTRIC"; speak("Bas"); }
+            }
+            if (currentState === "CONCENTRIC") {
+                updateUI("Bas!", "Güçlü", "#2ed573");
+                if (angle > 165) {
+                    if (canCountRep()) { count++; document.getElementById('count').innerText = count; speak(count.toString()); lastRepTime = Date.now(); }
+                    currentState = "START"; movementStartTime = 0;
+                }
+            }
+        }
+
+        async function render() {
+            if (isFinished) return;
+            if (!isPaused) {
+                const poses = await detector.estimatePoses(video);
+                ctx.drawImage(video, 0, 0, 640, 480);
+                if (poses.length > 0) {
+                    const k = poses[0].keypoints;
+                    const leftScore = (k[5].score+k[7].score+k[9].score);
+                    const rightScore = (k[6].score+k[8].score+k[10].score);
+                    const side = leftScore > rightScore ? 'left' : 'right';
+                    const body = {
+                        shoulder: k.find(p => p.name === `${side}_shoulder`),
+                        elbow: k.find(p => p.name === `${side}_elbow`),
+                        wrist: k.find(p => p.name === `${side}_wrist`),
+                        hip: k.find(p => p.name === `${side}_hip`),
+                        knee: k.find(p => p.name === `${side}_knee`),
+                        ankle: k.find(p => p.name === `${side}_ankle`)
+                    };
+
+                    if (body.shoulder && body.shoulder.score > 0.3) {
+                        ctx.strokeStyle = "#00cec9"; ctx.lineWidth = 4; ctx.fillStyle = "#00cec9";
+                        const drawLine = (a,b) => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, 2*Math.PI); ctx.fill(); };
+                        if(body.shoulder && body.elbow) drawLine(body.shoulder, body.elbow);
+                        if(body.elbow && body.wrist) drawLine(body.elbow, body.wrist);
+                        if(body.hip && body.knee) drawLine(body.hip, body.knee);
+                        if(body.knee && body.ankle) drawLine(body.knee, body.ankle);
+
+                        const ex = document.getElementById('exercise').value;
+                        if (ex === 'curl') logicCurl(body);
+                        else if (ex === 'squat') logicSquat(body);
+                        else if (ex === 'pushup') logicPushup(body);
+                    }
+                }
+            } else {
+                // Duraklatılmış halde sadece kamerayı göster (karanlık filtreli)
+                ctx.drawImage(video, 0, 0, 640, 480);
+                ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(0,0,640,480);
+            }
+            requestAnimationFrame(render);
+        }
+
+        function resetState() {
+            count = 0; currentState = "START"; movementStartTime = 0;
+            document.getElementById('count').innerText = 0;
+            document.getElementById('log-content').innerText = "Hareket değişti...";
+        }
+
+        async function init() {
+            document.querySelector('#loader button').innerText = "Yükleniyor...";
+            canvas = document.getElementById('output'); canvas.width = 640; canvas.height = 480; ctx = canvas.getContext('2d');
+            
+            video = document.getElementById('video');
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+            video.srcObject = stream;
+            await new Promise(r => video.onloadedmetadata = () => { video.play(); r(); });
+
+            detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING});
+            document.getElementById('loader').style.display = 'none';
+            
+            // SİSTEMİ DURAKLATILMIŞ OLARAK BAŞLAT (YENİ ÖZELLİK)
+            isPaused = true;
+            document.getElementById('pause-overlay').style.display = 'flex';
+            document.getElementById('pause-btn-top').innerText = "Devam Et";
+            speak("Sistem Hazır. Kamerayı ayarlayıp başlatın.");
+            
+            render();
+        }
+    </script>
+</body>
+</html>
